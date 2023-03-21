@@ -1,18 +1,32 @@
 package main
 
 import (
+	"archive/zip"
+	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode"
 
 	"github.com/urfave/cli/v2"
 )
 
+func capitalizeFirst(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	return strings.ToUpper(string(s[0])) + s[1:]
+}
+
 func genHandlerService(rname string) {
 
-	ls := strings.Title(rname)
+	ls := capitalizeFirst(rname)
 
 	s1 := fmt.Sprintf(`
 package %[2]s
@@ -112,6 +126,11 @@ func isAlphabetical(s string) bool {
 	return true
 }
 
+func isAlphaOrHyphen(s string) bool {
+	re := regexp.MustCompile(`^[a-zA-Z-]+$`)
+	return re.MatchString(s)
+}
+
 func main() {
 	app := &cli.App{
 		Commands: []*cli.Command{
@@ -130,10 +149,125 @@ func main() {
 					return nil
 				},
 			},
+			{
+				Name:    "new",
+				Aliases: []string{"n"},
+				Usage:   "create a new mango app",
+				Action: func(cCtx *cli.Context) error {
+					rname := cCtx.Args().First()
+					ok := isAlphaOrHyphen(rname)
+					if ok {
+						downloadAndExtractZip("https://github.com/mangopkg/create-mango-app/archive/refs/heads/main.zip", "./"+rname, true, rname)
+					} else {
+						fmt.Println("ERROR: Invalid name, it can only be alphabetical and can only contain -")
+					}
+					return nil
+				},
+			},
 		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func downloadAndExtractZip(url string, folderName string, skipRootFolder bool, name string) {
+
+	err := os.MkdirAll(folderName, 0755)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+
+	reader, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+
+	for _, f := range reader.File {
+		rc, err := f.Open()
+		if err != nil {
+			fmt.Println(err.Error())
+			return
+		}
+		defer rc.Close()
+
+		path := filepath.Join(folderName, f.Name)
+
+		if skipRootFolder {
+			pathParts := strings.Split(f.Name, "/")
+			if len(pathParts) > 1 {
+				path = filepath.Join(folderName, strings.Join(pathParts[1:], "/"))
+			} else {
+				continue
+			}
+		}
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(path, f.Mode())
+		} else {
+			f, err := os.OpenFile(path,
+				os.O_WRONLY|os.O_CREATE|os.O_TRUNC,
+				f.Mode())
+			if err != nil {
+				fmt.Println(err.Error())
+				return
+			}
+			defer f.Close()
+
+			_, err = io.Copy(f, rc)
+			if err != nil {
+				fmt.Println(err.Error())
+				return
+			}
+		}
+	}
+
+	replaceLineInFile(folderName+"/go.mod", 1, "module "+name)
+	replaceLineInFile(folderName+"/api/api.go", 9, "\""+name+"/book\"")
+	replaceLineInFile(folderName+"/main.go", 3, "import \""+name+"/api\"")
+
+}
+
+func replaceLineInFile(filePath string, lineNumber int, newText string) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	lines := []string{}
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+
+	if lineNumber < 0 || lineNumber >= len(lines) {
+		fmt.Println("line number out of range")
+		return
+	}
+
+	lines[lineNumber-1] = newText
+
+	output := strings.Join(lines, "\n")
+	erros := os.WriteFile(filePath, []byte(output), 0644)
+	if erros != nil {
+		fmt.Println(erros.Error())
+		return
 	}
 }
