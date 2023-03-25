@@ -58,11 +58,11 @@ func NewHandler(service *%[1]sService) {
 }
 
 /*
-<@route{
+</route{
 "pattern": "/find",
 "func": "Find",
 "method": "GET"
-}>
+}/route>
 */
 func (h *%[1]sHandler) Find() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
