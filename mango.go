@@ -41,22 +41,20 @@ import (
 type %[1]sHandler struct {
 	Response    mango.Response
 	MountAt     string
-	%[1]sService   %[1]sService
-	Methods     map[string]func(http.ResponseWriter, *http.Request)
+	%[1]sService   *%[1]sService
 }
 
-func NewHandler(service %[1]sService) {
+func NewHandler(service *%[1]sService) {
 
 	h := %[1]sHandler{
 		MountAt:     "/%[2]s",
 		%[1]sService:   service,
-		Methods:     make(map[string]func(http.ResponseWriter, *http.Request)),
 	}
 
 	f := reflect.TypeOf(&h)
 	v := reflect.ValueOf(&h)
 
-	h.%[1]sService.SetupHandler(h.MountAt, f, v, h.Methods)
+	h.%[1]sService.SetupHandler(h.MountAt, f, v)
 }
 
 /*
@@ -82,15 +80,15 @@ package %[2]s
 import "github.com/mangopkg/mango"
 
 type %[1]sService struct {
-	mango.Service
+	*mango.Service
 }
 
-func NewService(s mango.Service) {
+func NewService(s *mango.Service) {
 	nS := %[1]sService{
 		s,
 	}
 
-	NewHandler(nS)
+	NewHandler(&nS)
 }
 
 func (s *%[1]sService) Get%[1]s() string {
